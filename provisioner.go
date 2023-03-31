@@ -274,7 +274,17 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 	}
 
 	name := opts.PVName
-	folderName := strings.Join([]string{name, opts.PVC.Namespace, opts.PVC.Name}, "_")
+
+
+	var folderName string
+	if pathPattern, ok := opts.PVC.Annotations["pathPattern"]; ok {
+		folderName = pathPattern
+
+	} else {
+		folderName = strings.Join([]string{name, opts.PVC.Namespace, opts.PVC.Name}, "_")
+	}
+
+	// folderName := strings.Join([]string{name, opts.PVC.Namespace, opts.PVC.Name}, "_")
 
 	path := filepath.Join(basePath, folderName)
 	if nodeName == "" {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -88,6 +89,33 @@ type Config struct {
 	NodePathMap          map[string]*NodePathMap
 	CmdTimeoutSeconds    int
 	SharedFileSystemPath string
+}
+
+type pvcMetadata struct {
+	data        map[string]string
+	labels      map[string]string
+	annotations map[string]string
+	emptyPath   bool
+}
+
+var pattern = regexp.MustCompile(`\${\.PVC\.((labels|annotations)\.(.*?)|.*?)}`)
+
+func (meta *pvcMetadata) stringParser(str string) string {
+	result := pattern.FindAllStringSubmatch(str, -1)
+	for _, r := range result {
+		switch r[2] {
+		case "labels":
+			str = strings.ReplaceAll(str, r[0], meta.labels[r[3]])
+			meta.emptyPath = false
+		case "annotations":
+			str = strings.ReplaceAll(str, r[0], meta.annotations[r[3]])
+			meta.emptyPath = false
+		default:
+			str = strings.ReplaceAll(str, r[0], meta.data[r[1]])
+		}
+	}
+
+	return str
 }
 
 func NewProvisioner(ctx context.Context, kubeClient *clientset.Clientset,
@@ -275,18 +303,26 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 
 	name := opts.PVName
 
-
-	var folderName string
-	if pathPattern, ok := opts.PVC.Annotations["pathPattern"]; ok {
-		folderName = pathPattern
-
-	} else {
-		folderName = strings.Join([]string{name, opts.PVC.Namespace, opts.PVC.Name}, "_")
-	}
-
-	// folderName := strings.Join([]string{name, opts.PVC.Namespace, opts.PVC.Name}, "_")
-
+	folderName := strings.Join([]string{name, opts.PVC.Namespace, opts.PVC.Name}, "_")
 	path := filepath.Join(basePath, folderName)
+
+	metadata := &pvcMetadata{
+		data: map[string]string{
+			"name":      pvc.Name,
+			"namespace": pvc.Namespace,
+		},
+		labels:      pvc.Labels,
+		annotations: pvc.Annotations,
+		emptyPath:   true,
+	}
+	pathPattern, exists := opts.StorageClass.Parameters["pathPattern"]
+	if exists {
+		customPath := metadata.stringParser(pathPattern)
+		if !metadata.emptyPath && customPath != "" {
+			// path = customPath
+			path = filepath.Join(basePath, customPath)
+		}
+	}
 	if nodeName == "" {
 		logrus.Infof("Creating volume %v at %v", name, path)
 	} else {

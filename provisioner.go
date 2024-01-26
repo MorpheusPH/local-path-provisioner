@@ -112,6 +112,7 @@ func (meta *pvcMetadata) stringParser(str string) string {
 			meta.emptyPath = false
 		default:
 			str = strings.ReplaceAll(str, r[0], meta.data[r[1]])
+			str = filepath.Join(str, meta.data["name"])
 		}
 	}
 
@@ -302,7 +303,6 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 	}
 
 	name := opts.PVName
-
 	folderName := strings.Join([]string{name, opts.PVC.Namespace, opts.PVC.Name}, "_")
 	path := filepath.Join(basePath, folderName)
 
@@ -323,6 +323,7 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 			path = filepath.Join(basePath, customPath)
 		}
 	}
+
 	if nodeName == "" {
 		logrus.Infof("Creating volume %v at %v", name, path)
 	} else {

@@ -363,7 +363,21 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 	if sharedFS {
 		// If the same filesystem is mounted across all nodes, we don't need
 		// affinity, as path is accessible from any node
-		nodeAffinity = nil
+		// nodeAffinity = nil
+		nodeAffinity = &v1.VolumeNodeAffinity{
+			Required: &v1.NodeSelector{
+				NodeSelectorTerms: []v1.NodeSelectorTerm{
+					{
+						MatchExpressions: []v1.NodeSelectorRequirement{
+							{
+								Key:      "kubernetes.io/hostname",
+								Operator: v1.NodeSelectorOpExists,
+							},
+						},
+					},
+				},
+			},
+		}
 	} else {
 		valueNode, ok := node.GetLabels()[KeyNode]
 		if !ok {

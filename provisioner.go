@@ -101,21 +101,32 @@ type pvcMetadata struct {
 var pattern = regexp.MustCompile(`\${\.PVC\.((labels|annotations)\.(.*?)|.*?)}`)
 
 func (meta *pvcMetadata) stringParser(str string) string {
+	add_pvc_name := false
 	result := pattern.FindAllStringSubmatch(str, -1)
 	for _, r := range result {
 		switch r[2] {
 		case "labels":
-			str = strings.ReplaceAll(str, r[0], meta.labels[r[3]])
+			label, ok := meta.labels[r[3]]
+			if !ok {
+				add_pvc_name = true
+			}
+			str = strings.ReplaceAll(str, r[0], label)
 			meta.emptyPath = false
 		case "annotations":
-			str = strings.ReplaceAll(str, r[0], meta.annotations[r[3]])
+			annotation, ok := meta.annotations[r[3]]
+			if !ok {
+				add_pvc_name = true
+			}
+			str = strings.ReplaceAll(str, r[0], annotation)
 			meta.emptyPath = false
 		default:
 			str = strings.ReplaceAll(str, r[0], meta.data[r[1]])
-			str = filepath.Join(str, meta.data["name"])
 		}
 	}
-
+	if add_pvc_name {
+		str = filepath.Join(str, meta.data["name"])
+	}
+	logrus.Infof("path %s", str)
 	return str
 }
 

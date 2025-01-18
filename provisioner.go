@@ -644,10 +644,7 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	var dataMount *v1.VolumeMount
 	var vol_dir string
 	if p.modelCache {
-		modelParentDir, _ := filepath.Split(p.modelPath)
-		mountPath := filepath.Join(p.defaultMount, modelParentDir)
-		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, mountPath)
-		dataMount.SubPath = modelParentDir
+		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, p.defaultMount)
 		vol_dir = filepath.Join(p.defaultMount, p.modelPath)
 	} else {
 		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, parentDir)

@@ -76,6 +76,7 @@ type LocalPathProvisioner struct {
 	registry      string
 	storeType     string
 	defaultMount  string
+	project       string
 }
 
 type NodePathMapData struct {
@@ -159,6 +160,7 @@ func NewProvisioner(ctx context.Context, kubeClient *clientset.Clientset,
 		registry:      "",
 		storeType:     "",
 		defaultMount:  "/model",
+		project:       "public",
 	}
 	var err error
 	p.helperPod, err = loadHelperPodFile(helperPodYaml)
@@ -217,11 +219,6 @@ func (p *LocalPathProvisioner) watchAndRefreshConfig() {
 			}
 		}
 	}()
-}
-
-func (p *LocalPathProvisioner) getProjectModelName() (string, string) {
-	project, modelName := filepath.Split(p.modelPath)
-	return project, modelName[0:8]
 }
 
 func (p *LocalPathProvisioner) getPathOnNode(node string) (string, error) {
@@ -343,6 +340,13 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 		labels:      pvc.Labels,
 		annotations: pvc.Annotations,
 		emptyPath:   true,
+	}
+
+	project, exists := pvc.Labels["project"]
+	if exists {
+		p.project = project
+	} else {
+		p.project = pvc.Namespace
 	}
 
 	if storageClass.Parameters != nil {
@@ -634,10 +638,9 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	var dataMount *v1.VolumeMount
 	var vol_dir string
 	if p.modelCache {
-		project, modelName := p.getProjectModelName()
-		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + project + "-" + modelName)
-		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, filepath.Join(p.defaultMount, project))
-		vol_dir = filepath.Join(p.defaultMount, project, volumeDir)
+		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + p.project + "-" + volumeDir)
+		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, filepath.Join(p.defaultMount, p.project))
+		vol_dir = filepath.Join(p.defaultMount, p.project, volumeDir)
 	} else {
 		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
 		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, parentDir)

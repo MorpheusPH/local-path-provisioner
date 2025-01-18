@@ -76,7 +76,7 @@ type LocalPathProvisioner struct {
 	registry      string
 	storeType     string
 	defaultMount  string
-	project       string
+	owner         string
 }
 
 type NodePathMapData struct {
@@ -160,7 +160,7 @@ func NewProvisioner(ctx context.Context, kubeClient *clientset.Clientset,
 		registry:      "",
 		storeType:     "",
 		defaultMount:  "/model",
-		project:       "public",
+		owner:         "public",
 	}
 	var err error
 	p.helperPod, err = loadHelperPodFile(helperPodYaml)
@@ -342,11 +342,9 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 		emptyPath:   true,
 	}
 
-	project, exists := pvc.Labels["project"]
+	owner, exists := pvc.Labels["owner"]
 	if exists {
-		p.project = project
-	} else {
-		p.project = pvc.Namespace
+		p.owner = owner
 	}
 
 	if storageClass.Parameters != nil {
@@ -638,9 +636,9 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	var dataMount *v1.VolumeMount
 	var vol_dir string
 	if p.modelCache {
-		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + p.project + "-" + volumeDir[0:8])
-		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, filepath.Join(p.defaultMount, p.project))
-		vol_dir = filepath.Join(p.defaultMount, p.project, volumeDir)
+		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + p.owner + "-" + volumeDir[0:8])
+		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, filepath.Join(p.defaultMount, p.owner))
+		vol_dir = filepath.Join(p.defaultMount, p.owner, volumeDir)
 	} else {
 		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
 		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, parentDir)

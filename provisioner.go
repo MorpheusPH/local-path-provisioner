@@ -371,8 +371,11 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 			customPath := metadata.stringParser(pathPattern)
 			p.modelPath = customPath
 			if !metadata.emptyPath && customPath != "" {
-				// path = customPath
-				path = filepath.Join(basePath, customPath)
+				if p.modelCache {
+					path = basePath
+				} else {
+					path = filepath.Join(basePath, customPath)
+				}
 			}
 		}
 	}

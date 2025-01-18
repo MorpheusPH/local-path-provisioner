@@ -75,6 +75,7 @@ type LocalPathProvisioner struct {
 	modelPath     string
 	registry      string
 	storeType     string
+	defaultMount  string
 }
 
 type NodePathMapData struct {
@@ -157,6 +158,7 @@ func NewProvisioner(ctx context.Context, kubeClient *clientset.Clientset,
 		modelPath:     "",
 		registry:      "",
 		storeType:     "",
+		defaultMount:  "/model",
 	}
 	var err error
 	p.helperPod, err = loadHelperPodFile(helperPodYaml)
@@ -593,12 +595,18 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 			Path: "setup",
 		}
 	}
+	var dataVolumePath string
+	if p.modelCache {
+		dataVolumePath = o.Path
+	} else {
+		dataVolumePath = parentDir
+	}
 	lpvVolumes := []v1.Volume{
 		{
 			Name: helperDataVolName,
 			VolumeSource: v1.VolumeSource{
 				HostPath: &v1.HostPathVolumeSource{
-					Path: parentDir,
+					Path: dataVolumePath,
 					Type: &hostPathType,
 				},
 			},
@@ -630,7 +638,14 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 
 	scriptMount := addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperScriptVolName, helperScriptDir)
 	scriptMount.MountPath = helperScriptDir
-	dataMount := addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, parentDir)
+	var dataMount *v1.VolumeMount
+	if p.modelCache {
+		mountPath := filepath.Join(p.defaultMount, o.Path)
+		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, mountPath)
+		dataMount.SubPath = mountPath
+	} else {
+		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, parentDir)
+	}
 	parentDir = dataMount.MountPath
 	parentDir = strings.TrimSuffix(parentDir, string(filepath.Separator))
 	volumeDir = strings.TrimSuffix(volumeDir, string(filepath.Separator))

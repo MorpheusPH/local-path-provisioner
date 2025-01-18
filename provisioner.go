@@ -39,9 +39,12 @@ const (
 	helperDataVolName   = "data"
 	helperScriptVolName = "script"
 
-	envVolDir  = "VOL_DIR"
-	envVolMode = "VOL_MODE"
-	envVolSize = "VOL_SIZE_BYTES"
+	envVolDir    = "VOL_DIR"
+	envVolMode   = "VOL_MODE"
+	envVolSize   = "VOL_SIZE_BYTES"
+	envRegistry  = "REGISTRY"
+	envStoreType = "STORAGE_TYPE"
+	envREPOTAG   = "REPO_TAG"
 )
 
 const (
@@ -68,6 +71,10 @@ type LocalPathProvisioner struct {
 	configMapName string
 	configMutex   *sync.RWMutex
 	helperPod     *v1.Pod
+	modelCache    bool
+	modelPath     string
+	registry      string
+	storeType     string
 }
 
 type NodePathMapData struct {
@@ -146,6 +153,10 @@ func NewProvisioner(ctx context.Context, kubeClient *clientset.Clientset,
 		configData:    nil,
 		configMapName: configMapName,
 		configMutex:   &sync.RWMutex{},
+		modelCache:    false,
+		modelPath:     "",
+		registry:      "",
+		storeType:     "",
 	}
 	var err error
 	p.helperPod, err = loadHelperPodFile(helperPodYaml)
@@ -206,7 +217,12 @@ func (p *LocalPathProvisioner) watchAndRefreshConfig() {
 	}()
 }
 
-func (p *LocalPathProvisioner) getPathOnNode(node string, requestedPath string) (string, error) {
+func (p *LocalPathProvisioner) getModelName() string {
+	_, modelName := filepath.Split(p.modelPath)
+	return modelName
+}
+
+func (p *LocalPathProvisioner) getPathOnNode(node string) (string, error) {
 	p.configMutex.RLock()
 	defer p.configMutex.RUnlock()
 
@@ -237,12 +253,12 @@ func (p *LocalPathProvisioner) getPathOnNode(node string, requestedPath string) 
 		return "", fmt.Errorf("no local path available on node %v", node)
 	}
 	// if a particular path was requested by storage class
-	if requestedPath != "" {
-		if _, ok := paths[requestedPath]; !ok {
-			return "", fmt.Errorf("config doesn't contain path %v on node %v", requestedPath, node)
-		}
-		return requestedPath, nil
-	}
+	// if requestedPath != "" {
+	// 	if _, ok := paths[requestedPath]; !ok {
+	// 		return "", fmt.Errorf("config doesn't contain path %v on node %v", requestedPath, node)
+	// 	}
+	// 	return requestedPath, nil
+	// }
 	// if no particular path was requested, choose a random one
 	path := ""
 	for path = range paths {
@@ -276,6 +292,7 @@ func (p *LocalPathProvisioner) isSharedFilesystem() (bool, error) {
 }
 
 func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.ProvisionOptions) (*v1.PersistentVolume, pvController.ProvisioningState, error) {
+	logrus.Infof("%v", opts)
 	pvc := opts.PVC
 	node := opts.SelectedNode
 	storageClass := opts.StorageClass
@@ -302,13 +319,13 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 		// This clause works only with sharedFS
 		nodeName = node.Name
 	}
-	var requestedPath string
-	if storageClass.Parameters != nil {
-		if _, ok := storageClass.Parameters["nodePath"]; ok {
-			requestedPath = storageClass.Parameters["nodePath"]
-		}
-	}
-	basePath, err := p.getPathOnNode(nodeName, requestedPath)
+	// var requestedPath string
+	// if storageClass.Parameters != nil {
+	// if _, ok := storageClass.Parameters["nodePath"]; ok {
+	// 	requestedPath = storageClass.Parameters["nodePath"]
+	// }
+	// }
+	basePath, err := p.getPathOnNode(nodeName)
 	if err != nil {
 		return nil, pvController.ProvisioningFinished, err
 	}
@@ -326,15 +343,38 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 		annotations: pvc.Annotations,
 		emptyPath:   true,
 	}
-	pathPattern, exists := opts.StorageClass.Parameters["pathPattern"]
-	if exists {
-		customPath := metadata.stringParser(pathPattern)
-		if !metadata.emptyPath && customPath != "" {
-			// path = customPath
-			path = filepath.Join(basePath, customPath)
+
+	if storageClass.Parameters != nil {
+		isModelCache, exists := storageClass.Parameters["modelCache"]
+		if exists {
+			modelCache, err := strconv.ParseBool(isModelCache)
+			if err != nil {
+				return nil, pvController.ProvisioningFinished, err
+			}
+			p.modelCache = modelCache
+
+			registry, exists := storageClass.Parameters["registry"]
+			if !exists {
+				return nil, pvController.ProvisioningFinished, fmt.Errorf("The registry parameter must be set")
+			}
+			p.registry = registry
+
+			storeType, exists := storageClass.Parameters["storeType"]
+			if !exists {
+				return nil, pvController.ProvisioningFinished, fmt.Errorf("The storeType parameter must be set")
+			}
+			p.storeType = storeType
+		}
+		pathPattern, exists := opts.StorageClass.Parameters["pathPattern"]
+		if exists {
+			customPath := metadata.stringParser(pathPattern)
+			p.modelPath = customPath
+			if !metadata.emptyPath && customPath != "" {
+				// path = customPath
+				path = filepath.Join(basePath, customPath)
+			}
 		}
 	}
-
 	if nodeName == "" {
 		logrus.Infof("Creating volume %v at %v", name, path)
 	} else {
@@ -381,7 +421,7 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 					{
 						MatchExpressions: []v1.NodeSelectorRequirement{
 							{
-								Key:      "kubernetes.io/hostname",
+								Key:      KeyNode,
 								Operator: v1.NodeSelectorOpExists,
 							},
 						},
@@ -542,6 +582,18 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	o.Path = filepath.Clean(o.Path)
 	parentDir, volumeDir := filepath.Split(o.Path)
 	hostPathType := v1.HostPathDirectoryOrCreate
+	var setup v1.KeyToPath
+	if p.modelCache {
+		setup = v1.KeyToPath{
+			Key:  "setupcache",
+			Path: "setup",
+		}
+	} else {
+		setup = v1.KeyToPath{
+			Key:  "setup",
+			Path: "setup",
+		}
+	}
 	lpvVolumes := []v1.Volume{
 		{
 			Name: helperDataVolName,
@@ -560,10 +612,7 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 						Name: p.configMapName,
 					},
 					Items: []v1.KeyToPath{
-						{
-							Key:  "setup",
-							Path: "setup",
-						},
+						setup,
 						{
 							Key:  "teardown",
 							Path: "teardown",
@@ -595,10 +644,22 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 		{Name: envVolMode, Value: string(o.Mode)},
 		{Name: envVolSize, Value: strconv.FormatInt(o.SizeInBytes, 10)},
 	}
+	if p.modelCache {
+		cacheEnv := []v1.EnvVar{
+			{Name: envRegistry, Value: p.registry},
+			{Name: envStoreType, Value: p.storeType},
+			{Name: envREPOTAG, Value: fmt.Sprintf("%s:%s", p.modelPath, "latest")},
+		}
+		env = append(env, cacheEnv...)
+	}
 
 	// use different name for helper pods
 	// https://github.com/rancher/local-path-provisioner/issues/154
-	helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
+	if !p.modelCache {
+		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
+	} else {
+		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Node + "-" + p.getModelName())
+	}
 	if len(helperPod.Name) > HelperPodNameMaxLength {
 		helperPod.Name = helperPod.Name[:HelperPodNameMaxLength]
 	}

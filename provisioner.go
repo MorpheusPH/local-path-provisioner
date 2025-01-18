@@ -292,7 +292,6 @@ func (p *LocalPathProvisioner) isSharedFilesystem() (bool, error) {
 }
 
 func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.ProvisionOptions) (*v1.PersistentVolume, pvController.ProvisioningState, error) {
-	logrus.Infof("%v", opts)
 	pvc := opts.PVC
 	node := opts.SelectedNode
 	storageClass := opts.StorageClass

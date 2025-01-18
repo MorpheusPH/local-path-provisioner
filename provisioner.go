@@ -692,7 +692,7 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	helperPod.Spec.Volumes = append(helperPod.Spec.Volumes, lpvVolumes...)
 	helperPod.Spec.Containers[0].Command = cmd
 	helperPod.Spec.Containers[0].Env = append(helperPod.Spec.Containers[0].Env, env...)
-	helperPod.Spec.Containers[0].Args = []string{"-p", filepath.Join(parentDir, volumeDir),
+	helperPod.Spec.Containers[0].Args = []string{"-p", vol_dir,
 		"-s", strconv.FormatInt(o.SizeInBytes, 10),
 		"-m", string(o.Mode)}
 	helperPod.Spec.Containers[0].SecurityContext = &v1.SecurityContext{

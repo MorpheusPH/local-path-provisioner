@@ -639,12 +639,15 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	scriptMount := addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperScriptVolName, helperScriptDir)
 	scriptMount.MountPath = helperScriptDir
 	var dataMount *v1.VolumeMount
+	var vol_dir string
 	if p.modelCache {
 		mountPath := filepath.Join(p.defaultMount, p.modelPath)
 		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, mountPath)
 		dataMount.SubPath = p.modelPath
+		vol_dir = mountPath
 	} else {
 		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, parentDir)
+		vol_dir = filepath.Join(parentDir, volumeDir)
 	}
 	parentDir = dataMount.MountPath
 	parentDir = strings.TrimSuffix(parentDir, string(filepath.Separator))
@@ -653,8 +656,9 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 		// it covers the `/` case
 		return fmt.Errorf("invalid path %v for %v: cannot find parent dir or volume dir or parent dir is relative", action, o.Path)
 	}
+
 	env := []v1.EnvVar{
-		{Name: envVolDir, Value: filepath.Join(parentDir, volumeDir)},
+		{Name: envVolDir, Value: vol_dir},
 		{Name: envVolMode, Value: string(o.Mode)},
 		{Name: envVolSize, Value: strconv.FormatInt(o.SizeInBytes, 10)},
 	}

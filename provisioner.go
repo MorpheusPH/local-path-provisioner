@@ -219,9 +219,9 @@ func (p *LocalPathProvisioner) watchAndRefreshConfig() {
 	}()
 }
 
-func (p *LocalPathProvisioner) getModelName() string {
-	_, modelName := filepath.Split(p.modelPath)
-	return modelName[0:8]
+func (p *LocalPathProvisioner) getProjectModelName() (string, string) {
+	project, modelName := filepath.Split(p.modelPath)
+	return project, modelName[0:8]
 }
 
 func (p *LocalPathProvisioner) getPathOnNode(node string) (string, error) {
@@ -371,11 +371,7 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 			customPath := metadata.stringParser(pathPattern)
 			p.modelPath = customPath
 			if !metadata.emptyPath && customPath != "" {
-				if p.modelCache {
-					path = basePath
-				} else {
-					path = filepath.Join(basePath, customPath)
-				}
+				path = filepath.Join(basePath, customPath)
 			}
 		}
 	}
@@ -598,18 +594,12 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 			Path: "setup",
 		}
 	}
-	var dataVolumePath string
-	if p.modelCache {
-		dataVolumePath = o.Path
-	} else {
-		dataVolumePath = parentDir
-	}
 	lpvVolumes := []v1.Volume{
 		{
 			Name: helperDataVolName,
 			VolumeSource: v1.VolumeSource{
 				HostPath: &v1.HostPathVolumeSource{
-					Path: dataVolumePath,
+					Path: parentDir,
 					Type: &hostPathType,
 				},
 			},
@@ -644,9 +634,12 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	var dataMount *v1.VolumeMount
 	var vol_dir string
 	if p.modelCache {
-		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, p.defaultMount)
-		vol_dir = filepath.Join(p.defaultMount, p.modelPath)
+		project, modelName := p.getProjectModelName()
+		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + project + "-" + modelName)
+		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, filepath.Join(p.defaultMount, project))
+		vol_dir = filepath.Join(p.defaultMount, project, volumeDir)
 	} else {
+		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
 		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, parentDir)
 		vol_dir = filepath.Join(parentDir, volumeDir)
 	}
@@ -674,11 +667,7 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 
 	// use different name for helper pods
 	// https://github.com/rancher/local-path-provisioner/issues/154
-	if !p.modelCache {
-		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
-	} else {
-		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + p.getModelName())
-	}
+	// helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
 	if len(helperPod.Name) > HelperPodNameMaxLength {
 		helperPod.Name = helperPod.Name[:HelperPodNameMaxLength]
 	}

@@ -219,7 +219,7 @@ func (p *LocalPathProvisioner) watchAndRefreshConfig() {
 
 func (p *LocalPathProvisioner) getModelName() string {
 	_, modelName := filepath.Split(p.modelPath)
-	return modelName
+	return modelName[0:8]
 }
 
 func (p *LocalPathProvisioner) getPathOnNode(node string) (string, error) {
@@ -658,7 +658,7 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	if !p.modelCache {
 		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
 	} else {
-		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Node + "-" + p.getModelName())
+		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + p.getModelName())
 	}
 	if len(helperPod.Name) > HelperPodNameMaxLength {
 		helperPod.Name = helperPod.Name[:HelperPodNameMaxLength]
@@ -679,6 +679,9 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 		"-m", string(o.Mode)}
 	helperPod.Spec.Containers[0].SecurityContext = &v1.SecurityContext{
 		Privileged: &privileged,
+	}
+	if p.modelCache {
+		helperPod.Spec.Containers[0].Image = p.helperImage
 	}
 
 	// If it already exists due to some previous errors, the pod will be cleaned up later automatically

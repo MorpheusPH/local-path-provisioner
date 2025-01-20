@@ -1,0 +1,140 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: local-model-cache-provisioner-service-account
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: local-model-cache-provisioner-role
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "nodes", "persistentvolumeclaims", "configmaps" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: [ "" ]
+    resources: [ "endpoints", "persistentvolumes", "pods" ]
+    verbs: [ "*" ]
+  - apiGroups: [ "" ]
+    resources: [ "events" ]
+    verbs: [ "create", "patch" ]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: [ "storageclasses" ]
+    verbs: [ "get", "list", "watch" ]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: local-model-cache-provisioner-bind
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: local-model-cache-provisioner-role
+subjects:
+  - kind: ServiceAccount
+    name: local-model-cache-provisioner-service-account
+    namespace: local-path-storage
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: local-model-cache-provisioner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: local-model-cache-provisioner
+  template:
+    metadata:
+      labels:
+        app: local-model-cache-provisioner
+    spec:
+      serviceAccountName: local-model-cache-provisioner-service-account
+      containers:
+        - name: local-path-provisioner
+          image: morpheusph/local-path-provisioner:0.4
+          imagePullPolicy: IfNotPresent
+          command:
+            - local-path-provisioner
+            - --debug
+            - start
+            - --config
+            - /etc/config/config.json
+            - --provisioner-name
+            - rancher.io/local-model-cache
+            - --configmap-name
+            - local-model-cache-config
+            - --helper-image
+            - docker.io/morpheusph/modelcache:dev
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config/
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+      volumes:
+        - name: config-volume
+          configMap:
+            name: local-model-cache-config
+
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    defaultVolumeType: local
+  name: local-model-cache
+parameters:
+  pathPattern: ${.PVC.annotations.models/storage-path}
+  modelCache: "true"
+  storeType: "file"
+  registry: "zot.default:5000"
+  defaultMount: "/model"
+provisioner: rancher.io/local-model-cache
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: local-model-cache-config
+data:
+  config.json: |-
+    {
+            "nodePathMap":[
+            {
+                    "node":"DEFAULT_PATH_FOR_NON_LISTED_NODES",
+                    "paths":["/home/ubuntu/.models/"]
+            }
+            ]
+            "cmdTimeoutSeconds": 6000
+    }
+  setup: |-
+    #!/bin/sh
+    set -eu
+    mkdir -m 0777 -p "$VOL_DIR"
+    sleep 60
+  teardown: |-
+    #!/bin/sh
+    set -eu
+    rm -rf "$VOL_DIR"
+  setupcache: |-
+    #!/bin/sh
+    set -eux
+    mkdir -m 0777 -p "$VOL_DIR"
+    oras-pull-client
+  helperPod.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: helper-pod
+    spec:
+      containers:
+      - name: helper-pod
+        image: morpheusph/modelcache:dev
+        imagePullPolicy: Always

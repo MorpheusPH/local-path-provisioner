@@ -32,3 +32,7 @@ data:
           image: {{ .Values.helperImage.repository }}:{{ .Values.helperImage.tag }}
           {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+  {{- if .Values.configmap.setupcache }}
+  setupcache: |-
+    {{ .Values.configmap.setupcache | nindent 4 }}
+  {{- end }}

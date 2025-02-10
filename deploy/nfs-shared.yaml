@@ -1,0 +1,34 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: model-cache-config
+  namespace: local-path-storage
+data:
+  config.json: |-
+    {
+            "sharedFileSystemPath": "/Users/morpheus/opt/local-path-provisioner/",
+            "cmdTimeoutSeconds": 6000
+    }
+  helperPod.yaml: |-
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: helper-pod
+    spec:
+      containers:
+      - name: helper-pod
+        image: morpheusph/modelcache:dev
+        imagePullPolicy: Always
+  setup: |-
+    #!/bin/sh
+    set -eu
+    mkdir -m 0777 -p "$VOL_DIR"
+  setupcache: |-
+    #!/bin/sh
+    set -eux
+    mkdir -m 0777 -p "$VOL_DIR"
+    oras-pull-client
+  teardown: |-
+    #!/bin/sh
+    set -eu
+    rm -rf "$VOL_DIR"

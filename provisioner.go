@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +17,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8serror "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
@@ -695,18 +697,31 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 
 	// If it already exists due to some previous errors, the pod will be cleaned up later automatically
 	// https://github.com/rancher/local-path-provisioner/issues/27
-	logrus.Infof("create the helper pod %s into %s", helperPod.Name, p.namespace)
-	_, err = p.kubeClient.CoreV1().Pods(p.namespace).Create(context.TODO(), helperPod, metav1.CreateOptions{})
-	if err != nil && !k8serror.IsAlreadyExists(err) {
-		return err
+	helperPodExists := false
+	_, err = p.kubeClient.CoreV1().Pods(p.namespace).Get(context.TODO(), helperPod.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		helperPodExists = false
+	} else if err != nil {
+		log.Fatalf("Error getting helperPod: %v", err)
+	} else {
+		helperPodExists = true
+		fmt.Printf("helperPod %s exists in namespace %s\n, skip create  helpPod", helperPod.Name, p.namespace)
 	}
 
-	defer func() {
-		e := p.kubeClient.CoreV1().Pods(p.namespace).Delete(context.TODO(), helperPod.Name, metav1.DeleteOptions{})
-		if e != nil {
-			logrus.Errorf("unable to delete the helper pod: %v", e)
+	if !helperPodExists {
+		logrus.Infof("create the helper pod %s into %s", helperPod.Name, p.namespace)
+		_, err = p.kubeClient.CoreV1().Pods(p.namespace).Create(context.TODO(), helperPod, metav1.CreateOptions{})
+		if err != nil && !k8serror.IsAlreadyExists(err) {
+			return err
 		}
-	}()
+
+		defer func() {
+			e := p.kubeClient.CoreV1().Pods(p.namespace).Delete(context.TODO(), helperPod.Name, metav1.DeleteOptions{})
+			if e != nil {
+				logrus.Errorf("unable to delete the helper pod: %v", e)
+			}
+		}()
+	}
 
 	completed := false
 	for i := 0; i < p.config.CmdTimeoutSeconds; i++ {

@@ -34,7 +34,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: local-model-cache-provisioner-service-account
-    namespace: local-path-storage
+    namespace: genai-platform-system
 
 ---
 apiVersion: apps/v1
@@ -76,6 +76,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: SERVICE_ACCOUNT_NAME
+              value: local-model-cache-provisioner-service-account
       volumes:
         - name: config-volume
           configMap:
@@ -92,7 +94,7 @@ parameters:
   pathPattern: ${.PVC.annotations.models/storage-path}
   modelCache: "true"
   storeType: "file"
-  registry: "zot.default:5000"
+  registry: "zot.zot-registry:5000"
   defaultMount: "/model"
 provisioner: rancher.io/local-model-cache
 reclaimPolicy: Retain
@@ -111,7 +113,7 @@ data:
                     "node":"DEFAULT_PATH_FOR_NON_LISTED_NODES",
                     "paths":["/home/ubuntu/.models/"]
             }
-            ]
+            ],
             "cmdTimeoutSeconds": 6000
     }
   setup: |-

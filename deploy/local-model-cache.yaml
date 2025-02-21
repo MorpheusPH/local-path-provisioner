@@ -99,7 +99,19 @@ parameters:
 provisioner: rancher.io/local-model-cache
 reclaimPolicy: Retain
 volumeBindingMode: WaitForFirstConsumer
-
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    defaultVolumeType: local
+    storageclass.kubernetes.io/is-default-class: "true"
+  name: default-local
+parameters:
+  pathPattern: ${.PVC.annotations.models/storage-path}
+provisioner: rancher.io/local-model-cache
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
 ---
 kind: ConfigMap
 apiVersion: v1
@@ -120,7 +132,6 @@ data:
     #!/bin/sh
     set -eu
     mkdir -m 0777 -p "$VOL_DIR"
-    sleep 60
   teardown: |-
     #!/bin/sh
     set -eu

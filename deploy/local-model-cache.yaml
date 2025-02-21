@@ -54,8 +54,8 @@ spec:
       serviceAccountName: local-model-cache-provisioner-service-account
       containers:
         - name: local-path-provisioner
-          image: morpheusph/local-path-provisioner:0.5
-          imagePullPolicy: IfNotPresent
+          image: morpheusph/local-path-provisioner:0.1
+          imagePullPolicy: Always
           command:
             - local-path-provisioner
             - --debug

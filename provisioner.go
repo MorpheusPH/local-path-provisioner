@@ -393,7 +393,7 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 		Mode:        *pvc.Spec.VolumeMode,
 		SizeInBytes: storage.Value(),
 		Node:        nodeName,
-	}); err != nil {
+	}, pvc.Annotations); err != nil {
 		return nil, pvController.ProvisioningFinished, err
 	}
 
@@ -495,7 +495,7 @@ func (p *LocalPathProvisioner) Delete(ctx context.Context, pv *v1.PersistentVolu
 			Mode:        *pv.Spec.VolumeMode,
 			SizeInBytes: storage.Value(),
 			Node:        node,
-		}); err != nil {
+		}, nil); err != nil {
 			logrus.Infof("clean up volume %v failed: %v", pv.Name, err)
 			return err
 		}
@@ -569,7 +569,7 @@ type volumeOptions struct {
 	Node        string
 }
 
-func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, o volumeOptions) (err error) {
+func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, o volumeOptions, annotation map[string]string) (err error) {
 	defer func() {
 		err = errors.Wrapf(err, "failed to %v volume %v", action, o.Name)
 	}()
@@ -669,7 +669,17 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 		cacheEnv := []v1.EnvVar{
 			{Name: envRegistry, Value: p.registry},
 			{Name: envStoreType, Value: p.storeType},
-			{Name: envREPOTAG, Value: fmt.Sprintf("%s:%s", p.modelPath, "latest")},
+			// {Name: envREPOTAG, Value: fmt.Sprintf("%s:%s", p.modelPath, "latest")},
+		}
+		if annotation != nil {
+			registry, ok := annotation["model/registry"]
+			if ok {
+				registryEnv := v1.EnvVar{
+					Name:  envREPOTAG,
+					Value: registry,
+				}
+				cacheEnv = append(cacheEnv, registryEnv)
+			}
 		}
 		env = append(env, cacheEnv...)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -637,16 +638,13 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	scriptMount.MountPath = helperScriptDir
 	var dataMount *v1.VolumeMount
 	var vol_dir string
-	var suffix string
+	hash := calculatorSha256(o.Path)
 	if p.modelCache {
-		if len(volumeDir) >= 8 {
-			suffix = volumeDir[0:8]
-		} else {
-			suffix = volumeDir
-		}
-		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + p.owner + "-" + suffix)
-		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, filepath.Join(p.defaultMount, p.owner))
-		vol_dir = filepath.Join(p.defaultMount, p.owner, volumeDir)
+		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + hash)
+		basePath, _ := p.getPathOnNode(o.Node)
+		modelPath := strings.TrimPrefix(parentDir, basePath)
+		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, filepath.Join(p.defaultMount, modelPath))
+		vol_dir = filepath.Join(p.defaultMount, modelPath, volumeDir)
 	} else {
 		helperPod.Name = (helperPod.Name + "-" + string(action) + "-" + o.Name)
 		dataMount = addVolumeMount(&helperPod.Spec.Containers[0].VolumeMounts, helperDataVolName, parentDir)
@@ -871,4 +869,12 @@ func createPersistentVolumeSource(volumeType string, path string) (pvs v1.Persis
 	}
 
 	return pvs, nil
+}
+
+func calculatorSha256(path string) string {
+	h := sha256.New()
+	h.Write([]byte(path))
+	bs := h.Sum(nil)
+	hash := fmt.Sprintf("%x", bs)[0:8]
+	return hash
 }

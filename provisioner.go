@@ -680,7 +680,7 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 		{Name: envVolMode, Value: string(o.Mode)},
 		{Name: envVolSize, Value: strconv.FormatInt(o.SizeInBytes, 10)},
 	}
-	if p.modelCache {
+	if o.ModelCache {
 		cacheEnv := []v1.EnvVar{
 			{Name: envRegistry, Value: p.registry},
 			{Name: envStoreType, Value: p.storeType},
@@ -722,7 +722,7 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	helperPod.Spec.Containers[0].SecurityContext = &v1.SecurityContext{
 		Privileged: &privileged,
 	}
-	if p.modelCache {
+	if o.ModelCache {
 		helperPod.Spec.Containers[0].Image = p.helperImage
 	}
 

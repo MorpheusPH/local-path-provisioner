@@ -158,7 +158,6 @@ func NewProvisioner(ctx context.Context, kubeClient *clientset.Clientset,
 		configData:    nil,
 		configMapName: configMapName,
 		configMutex:   &sync.RWMutex{},
-		modelCache:    false,
 		modelPath:     "",
 		registry:      "",
 		storeType:     "",
@@ -350,15 +349,14 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 		p.owner = owner
 	}
 
+	modelCache := false
 	if storageClass.Parameters != nil {
 		isModelCache, exists := storageClass.Parameters["modelCache"]
 		if exists {
-			modelCache, err := strconv.ParseBool(isModelCache)
+			modelCache, err = strconv.ParseBool(isModelCache)
 			if err != nil {
 				return nil, pvController.ProvisioningFinished, err
 			}
-			p.modelCache = modelCache
-
 			registry, exists := storageClass.Parameters["registry"]
 			if !exists {
 				return nil, pvController.ProvisioningFinished, fmt.Errorf("The registry parameter must be set")
@@ -394,6 +392,7 @@ func (p *LocalPathProvisioner) Provision(ctx context.Context, opts pvController.
 		Mode:        *pvc.Spec.VolumeMode,
 		SizeInBytes: storage.Value(),
 		Node:        nodeName,
+		ModelCache:  modelCache,
 	}, pvc.Annotations); err != nil {
 		return nil, pvController.ProvisioningFinished, err
 	}
@@ -568,6 +567,7 @@ type volumeOptions struct {
 	Mode        v1.PersistentVolumeMode
 	SizeInBytes int64
 	Node        string
+	ModelCache  bool
 }
 
 func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, o volumeOptions, annotation map[string]string) (err error) {
@@ -588,15 +588,48 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	parentDir, volumeDir := filepath.Split(o.Path)
 	hostPathType := v1.HostPathDirectoryOrCreate
 	var setup v1.KeyToPath
-	if p.modelCache {
-		setup = v1.KeyToPath{
-			Key:  "setupcache",
-			Path: "setup",
+	var cmdVolume v1.Volume
+	if action == ActionTypeCreate {
+		if o.ModelCache {
+			setup = v1.KeyToPath{
+				Key:  "setupcache",
+				Path: "setup",
+			}
+		} else {
+			setup = v1.KeyToPath{
+				Key:  "setup",
+				Path: "setup",
+			}
+		}
+		cmdVolume = v1.Volume{
+			Name: helperScriptVolName,
+			VolumeSource: v1.VolumeSource{
+				ConfigMap: &v1.ConfigMapVolumeSource{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: p.configMapName,
+					},
+					Items: []v1.KeyToPath{
+						setup,
+					},
+				},
+			},
 		}
 	} else {
-		setup = v1.KeyToPath{
-			Key:  "setup",
-			Path: "setup",
+		cmdVolume = v1.Volume{
+			Name: helperScriptVolName,
+			VolumeSource: v1.VolumeSource{
+				ConfigMap: &v1.ConfigMapVolumeSource{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: p.configMapName,
+					},
+					Items: []v1.KeyToPath{
+						{
+							Key:  "teardown",
+							Path: "teardown",
+						},
+					},
+				},
+			},
 		}
 	}
 	lpvVolumes := []v1.Volume{
@@ -609,24 +642,8 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 				},
 			},
 		},
-		{
-			Name: helperScriptVolName,
-			VolumeSource: v1.VolumeSource{
-				ConfigMap: &v1.ConfigMapVolumeSource{
-					LocalObjectReference: v1.LocalObjectReference{
-						Name: p.configMapName,
-					},
-					Items: []v1.KeyToPath{
-						setup,
-						{
-							Key:  "teardown",
-							Path: "teardown",
-						},
-					},
-				},
-			},
-		},
 	}
+	lpvVolumes = append(lpvVolumes, cmdVolume)
 	lpvTolerations := []v1.Toleration{
 		{
 			Operator: v1.TolerationOpExists,
@@ -639,7 +656,7 @@ func (p *LocalPathProvisioner) createHelperPod(action ActionType, cmd []string, 
 	var dataMount *v1.VolumeMount
 	var vol_dir string
 	hash := calculatorSha256(o.Path)
-	if p.modelCache {
+	if o.ModelCache {
 		helperPod.Name = ("cache-" + string(action) + "-" + o.Node + "-" + hash)
 		basePath, _ := p.getPathOnNode(o.Node)
 		modelPath := strings.TrimPrefix(parentDir, basePath)
